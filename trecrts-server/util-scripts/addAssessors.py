@@ -41,7 +41,8 @@ def get_assessors(infile):
   return assessors
 
 def execute_sql_command(sql_command):
-  command = "mysql -u salman -e \'USE trec_rts; {}\'".format(sql_command)
+  # ToDo: make it secure
+  command = "mysql -u royal -e \'USE trec_rts; {}\'".format(sql_command)
   # print(command)
   try:
     call(command, shell=True)
