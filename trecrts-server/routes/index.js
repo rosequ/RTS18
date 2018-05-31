@@ -1,31 +1,45 @@
 module.exports = function(io){
   const util = require('util');
-  var express = require('express')
+  var express = require('express');
+  var bodyParser = require('body-parser');
   var router = express.Router();
-  const { RTMClient } = require('@slack/client');
+  const { WebClient } = require('@slack/client');
+  var request = require('request');
+
   // make it an env variable after
-  const token = 'xoxp-129293381650-131890727504-370902414049-df076613ff9ac19db3fc5080d25d889b';
+  const token = 'xoxb-129293381650-372829510465-l68A2pF98gXWTnBP2aDHPuGD';
 
-  // Initialize and start the RTMClient
-  const rtm = new RTMClient(token);
-  rtm.start();
+  // Initialize and start the Web Client for Slack
+  const web = new WebClient(token);
+  
+  const button = [{"text": "",
+                            "fallback": "You are unable to choose an option",
+                            "callback_id": "relevance",
+                            "color": "#3AA3E3",
+                            "attachment_type": "default",
+                            "actions": [
+                                {"name": "relevant",
+                                 "text": ":thumbsup:",
+                                 "type": "button",
+                                 "value": "relevant"},
+                                {"name": "non-relevant",
+                                 "text": ":thumbsdown:",
+                                 "type": "button",
+                                 "value": "notrelevant"},
+                                {"name": "redundant",
+                                 "text": ":fist:",
+                                 "type": "button",
+                                 "value": "redundant",
+                    			}
+                                 ]}]
 
-  // Luchen's ID for testing
-  const conversationId = 'U3X0KSXLY';
+  var urlencodedParser = bodyParser.urlencoded({ extended: false });
 
-
-/*
-  var gcm = require('node-gcm')
-  var apn = require('apn')
-  var push_auths = require('./push_auths.js')
-  var apnConnection = new apn.Connection()
-
-  var sender = new gcm.Sender(push_auths.gcm);
-*/
   var registrationIds = []; // containts partids of all participants
   var loaded = false;
   var regIdx = 0;
-  const RATE_LIMIT = 10; // max num of tweets per topic per client
+  //Todo: revert this to 10
+  const RATE_LIMIT = 10000000; // max num of tweets per topic per client
   const ASSESSMENTS_PULL_LIMIT = 1; // max num of times client can pull assessments per 10 minutes
   const MAX_ASS = 3;
   const MAX_CLIENTS = 3;
@@ -53,45 +67,14 @@ module.exports = function(io){
 
   function send_tweet_dm(db, tweet, partid, conversationId) {
     // console.log("hello")
-    var text = "https://twitter.com/432142134/status/" + tweet["tweetid"] // used random user id
-    text += "\nTopic: " + tweet["topid"] + " - " + tweet["topic"]
-    // text += "\n\nRelevant: " + generate_judgement_link(tweet["topid"], tweet["tweetid"], rel2id['rel'], partid)
-    // text += "\n\nNot Relevant: " + generate_judgement_link(tweet["topid"], tweet["tweetid"], rel2id['notrel'], partid)
-    // text += "\n\nDuplicate: " + generate_judgement_link(tweet["topid"], tweet["tweetid"], rel2id['dup'], partid)
-    // text += "\n\nJudge: " + generate_judgement_link(tweet["topid"], tweet["tweetid"], partid)
-
-
-    rtm.sendMessage(text, conversationId)
+    console.log(conversationId);
+    var text = "\nTopic: " + tweet["topid"] + " - " + tweet["topic"] + "\n" + "https://twitter.com/432142134/status/1000812604904824832";
+	web.chat.postMessage({ channel: conversationId, text: text, as_user: true, attachments: button})
   	.then((res) => {
     // `res` contains information about the posted message
-    console.log('Message sent: ', res.ts);
+    console.log('Message sent: ');
   	})
-  	.catch(console.error){
-  		console.log("ERROR:");
-        console.log(util.inspect(error, {showHidden: false, depth: null}));
-        throw error;
-  	};
-
-    // twitter_client.post('direct_messages/new', {screen_name: twitterhandle, text: text},  function(error, tweetResponse, response) {
-    //   if(error) {
-    //     console.log("ERROR:");
-    //     console.log(util.inspect(error, {showHidden: false, depth: null}));
-    //     throw error;
-    //   }
-    //   console.log("Successful: send_tweet_dm sent out a DM.")
-      // console.log(tweetResponse);  // Tweet body.
-      // console.log(response);  // Raw response object.
-
-      // you have to pass DB along for this to work
-      // console.log("Deleting instantaneous judgements for this topid, tweetid and partid.")
-      // db.query('delete from judgements where assessor = ? and topid = ? and tweetid = ?;',[partid, tweet["topid"], tweet["tweetid"]],function(errors3,results3){
-      //   if(errors3){
-      //     console.log('ERROR: Could not delete instantaneous judgements');
-      //     return;
-      //   }
-      //   console.log("Successful: deleted instantaneous judgements for assessor: %s, topid: %s, tweetid: %s", partid, tweet["topid"], tweet["topid"]);
-      // });
-    });
+  	.catch(console.error);
   }
 
 
@@ -109,19 +92,7 @@ module.exports = function(io){
       if (idx === -1)
         continue;
       var currPart = registrationIds[idx];
-      // console.log("currPart: " + currPart)
-      //registrationIds.push({'partid':part.partid,'twitterhandle':part.twitterhandle,'email':part.email});
-      // console.log("part email: " + currPart['email'])
       send_tweet_dm(db, tweet, currPart['partid'], currPart['twitterhandle']);
-      /*
-      if(currDevice['type'] === 'gcm')
-        send_tweet_gcm(tweet,currDevice['conn']);
-      else if(currDevice['type'] === 'socket'){
-        send_tweet_socket(tweet,currDevice['conn']);
-      } else if(currDevice['type'] === 'apn'){
-        send_tweet_apn(tweet,currDevice['conn'])
-      }
-      */
     }
   }
 
@@ -154,23 +125,64 @@ module.exports = function(io){
   }
 
   var rel2id = {"notrel": 0, "rel": 1, "dup": 2}
+	
+  function sendMessageToSlackResponseURL(actionJSONPayload){
+	  //   var postOptions = {
+	  //       uri: response_url,
+	  //       method: 'POST',
+	  //       headers: {
+	  //           'Content-type': 'application/json'
+	  //       },
+	  //       json: {
+			//   "response_type": "ephemeral",
+			//   "replace_original": true,
+			//   "text": "Yay! you assessed it!"
+			// }
+	  //   }
+	  //   request(postOptions, (error, response, body) => {
+	  //       if (error){
+	  //       	console.log(error);
+	  //           // handle errors as you see fit
+	  //       }
+	  //   })
+	    web.chat.update({channel: actionJSONPayload.channel.id, text:'You have clicked this!', ts:actionJSONPayload.message_ts, attachments:[]})
+	}
+  
+  router.post('/slack/message_actions', urlencodedParser, (req, res) =>{
+  	console.log("received the action");
+    res.status(200).end() // best practice to respond with 200 status
+    var actionJSONPayload = JSON.parse(req.body.payload) // parse URL-encoded payload JSON string
+    // console.log(actionJSONPayload)
+    var message = {
+        "text": actionJSONPayload.user.name+" clicked: "+actionJSONPayload.actions[0].name,
+        "replace_original": false
+    }
 
-  // function generate_judgement_link(topid, tweetid, partid) {
-  //   // var hostname = "localhost:10101";
-  //   var hostname = "http://scspc654.cs.uwaterloo.ca";
-  //   var link = util.format('%s/judge/%s/%s/%s', hostname, topid, tweetid, partid);
-  //   return link;
-  // }
+    selection = actionJSONPayload["actions"][0]["value"]
 
-  // // show assessors the page to judge tweets with 3 buttons
-  // router.get('/judge/:topid/:tweetid/:partid', function(req,res) {
-  //   var top = req.params.topid;
-  //   var tweet = req.params.tweetid;
-  //   var part = req.params.partid;
+    var  message_text = ""
+    if (selection == "relevant"){
+       message_text = "RELEVANT"
+    }
+   	else if (selection == "notrelevant"){
+       message_text = "NOT RELEVANT"
+   	} else {
+   		message_text = "REDUNDANT"
+   	}
 
-  //   res.render('judgement', { topid: top, tweetid: tweet, partid: part });
-  // });
+   // web.chat.update({
+   //   channel=actionJSONPayload["channel"]["id"],
+   //   ts=actionJSONPayload["message_ts"],
+   //   text="You have judged this tweet as " + message_text
+   //   attachments=[] // empty `attachments` to clear the existing massage attachments
+   // });
 
+   console.log(message_text)
+   console.log(actionJSONPayload)
+   sendMessageToSlackResponseURL(actionJSONPayload)
+});
+
+  // ToDo: Change this part to get assessments from Slack
   // store judgements in the DB
   router.post('/judge/:topid/:tweetid/:rel/:partid', function(req,res){
     var topid = req.params.topid;
@@ -203,7 +215,7 @@ module.exports = function(io){
             console.log(errors)
             console.log("Unable to log: ",topid," ",tweetid," ",rel," ",devicetype);
             res.status(500).json({message : 'Unable to insert/update relevance assessment'})
-          }else{
+          } else {
             console.log("Logged: ",topid," ",tweetid," ",rel," ",devicetype);
             // res.send('Success! Stored/Updated the relevance judgement.')
             res.render('judgement-store-msg', { judgement: rel });
@@ -338,6 +350,7 @@ module.exports = function(io){
 
 
   // TODO: Need to enforce topid is valid
+  // Push tweets to the assessors as and when they arrive
   router.post('/tweet/:topid/:tweetid/:clientid',function(req,res){
     var topid = req.params.topid;
     var tweetid = req.params.tweetid;
@@ -427,7 +440,7 @@ module.exports = function(io){
                       console.log("in loaded: " + registrationIds)
                     }
                     else {
-                      // results3 contains participants who were assigned to judged this topic
+                      // results3 contains participants who were assigned to judge this topic
                       console.log(results3)
                       if (results3.length !== 0){
                         var ids = []
@@ -463,6 +476,8 @@ module.exports = function(io){
     var clientid = genID();
     validate_group(db,groupid,function(errors,results){
       if(errors || results.length === 0){
+      	console.log(errors)
+      	console.log(results)
         res.status(500).json({'message':'Unable to register a client for group: ' + groupid});
         return;
       }

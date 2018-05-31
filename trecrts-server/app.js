@@ -23,7 +23,7 @@ var logger = new winston.Logger({
       host:'localhost',
       connectionLimit:15,
       table:'log_table',
-      user: 'salman'}) 
+      user: 'royal'}) 
   ],
   exitOnError: false
 })
@@ -42,7 +42,7 @@ app.set('view engine', 'jade');
 var routes = require('./routes/index')(app.io);
 
 // DATABASE config
-var config = {user: 'salman', host: 'localhost', database: 'trec_rts', connectionLimit: 30};
+var config = {user: 'royal', host: 'localhost', database: 'trec_rts', connectionLimit: 30};
 var connection = mysql.createPool(config);
 
 app.use(device.capture());
