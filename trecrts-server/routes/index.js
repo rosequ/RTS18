@@ -21,15 +21,15 @@ module.exports = function(io){
                                 {"name": "relevant",
                                  "text": ":thumbsup:",
                                  "type": "button",
-                                 "value": "relevant"},
+                                 "value": "rel"},
                                 {"name": "non-relevant",
                                  "text": ":thumbsdown:",
                                  "type": "button",
-                                 "value": "notrelevant"},
-                                {"name": "redundant",
+                                 "value": "notrel"},
+                                {"name": "dup",
                                  "text": ":fist:",
                                  "type": "button",
-                                 "value": "redundant",
+                                 "value": "dup",
                     			}
                                  ]}]
 
@@ -68,7 +68,7 @@ module.exports = function(io){
   function send_tweet_dm(db, tweet, partid, conversationId) {
     // console.log("hello")
     console.log(conversationId);
-    var text = "\nTopic: " + tweet["topid"] + " - " + tweet["topic"] + "\n" + "https://twitter.com/432142134/status/1000812604904824832";
+    var text = "\nTopic: " + tweet["topid"] + " - " + tweet["topic"] + "\n" + "https://twitter.com/user/status/" + tweet["tweetid"] + "\nParticipant id: " + partid;
 	web.chat.postMessage({ channel: conversationId, text: text, as_user: true, attachments: button})
   	.then((res) => {
     // `res` contains information about the posted message
@@ -125,76 +125,35 @@ module.exports = function(io){
   }
 
   var rel2id = {"notrel": 0, "rel": 1, "dup": 2}
-	
-  function sendMessageToSlackResponseURL(actionJSONPayload){
-	  //   var postOptions = {
-	  //       uri: response_url,
-	  //       method: 'POST',
-	  //       headers: {
-	  //           'Content-type': 'application/json'
-	  //       },
-	  //       json: {
-			//   "response_type": "ephemeral",
-			//   "replace_original": true,
-			//   "text": "Yay! you assessed it!"
-			// }
-	  //   }
-	  //   request(postOptions, (error, response, body) => {
-	  //       if (error){
-	  //       	console.log(error);
-	  //           // handle errors as you see fit
-	  //       }
-	  //   })
-	    web.chat.update({channel: actionJSONPayload.channel.id, text:'You have clicked this!', ts:actionJSONPayload.message_ts, attachments:[]})
-	}
+
   
   router.post('/slack/message_actions', urlencodedParser, (req, res) =>{
-  	console.log("received the action");
+  //	console.log("received the action");
     res.status(200).end() // best practice to respond with 200 status
     var actionJSONPayload = JSON.parse(req.body.payload) // parse URL-encoded payload JSON string
-    // console.log(actionJSONPayload)
-    var message = {
-        "text": actionJSONPayload.user.name+" clicked: "+actionJSONPayload.actions[0].name,
-        "replace_original": false
-    }
-
     selection = actionJSONPayload["actions"][0]["value"]
 
-    var  message_text = ""
-    if (selection == "relevant"){
-       message_text = "RELEVANT"
-    }
-   	else if (selection == "notrelevant"){
-       message_text = "NOT RELEVANT"
-   	} else {
-   		message_text = "REDUNDANT"
-   	}
+    //console.log(selection)
+    var  relevance = rel2id[selection]
+	
+	web.chat.update({channel: actionJSONPayload.channel.id, text:'You have clicked this!', ts:actionJSONPayload.message_ts, attachments:[]})
+	
 
-   // web.chat.update({
-   //   channel=actionJSONPayload["channel"]["id"],
-   //   ts=actionJSONPayload["message_ts"],
-   //   text="You have judged this tweet as " + message_text
-   //   attachments=[] // empty `attachments` to clear the existing massage attachments
-   // });
+//	console.log(actionJSONPayload)
+	var db = req.db;
+  var devicetype = req.device.type.toLowerCase();
 
-   console.log(message_text)
-   console.log(actionJSONPayload)
-   sendMessageToSlackResponseURL(actionJSONPayload)
-});
-
-  // ToDo: Change this part to get assessments from Slack
-  // store judgements in the DB
-  router.post('/judge/:topid/:tweetid/:rel/:partid', function(req,res){
-    var topid = req.params.topid;
-    var tweetid = req.params.tweetid;
-    var rel = req.params.rel;
-    var partid = req.params.partid;
-    
-    var devicetype = req.device.type.toLowerCase(); 
-    // console.log("devicetype - ", devicetype);
-
-    var db = req.db;
-    // validate partid 
+    // validate partid
+    const original_text = actionJSONPayload.original_message.text
+  //  console.log(original_text)
+    // ToDO: clean the text here to get the topic id and the tweet id
+    var topid = original_text.split(/-(.+)/)[0].replace('Topic:', '').trim();
+    // ToDo: change this to a more elegant RegEx
+    var tweetid = original_text.split(/\n(.+)/)[3].replace('<https://twitter.com/user/status/', '').replace('>', '');
+    var rel = relevance
+    var partid = original_text.split(/\n(.+)/)[5].replace("Participant id:", "").trim();
+  
+   // console.log(topid + " " + tweetid + " " + rel + " " + partid);
     db.query('select * from participants where partid = ?;',partid,function(errors0,results0){
       if(errors0 || results0.length === 0) {
         res.status(500).json({'message':'Invalid participant: ' + partid});
@@ -209,7 +168,7 @@ module.exports = function(io){
         }
 
         // insert judgement into DB
-        db.query('insert judgements (assessor,topid,tweetid,rel,devicetype) values (?,?,?,?,?) ON DUPLICATE KEY UPDATE rel=?, submitted=NOW()',
+        db.query('insert judgements (assessor,topid,tweetid,rel,useragent) values (?,?,?,?,?) ON DUPLICATE KEY UPDATE rel=?, submitted=NOW()',
                                         [partid,topid,tweetid,rel,devicetype,rel],function(errors,results){
           if(errors){
             console.log(errors)
@@ -218,12 +177,58 @@ module.exports = function(io){
           } else {
             console.log("Logged: ",topid," ",tweetid," ",rel," ",devicetype);
             // res.send('Success! Stored/Updated the relevance judgement.')
-            res.render('judgement-store-msg', { judgement: rel });
+            //res.render('judgement-store-msg', { judgement: rel });
           }
         });
       });
     });    
-  });
+
+ //  sendMessageToSlackResponseURL(actionJSONPayload);
+
+
+});
+
+  // store judgements in the DB
+  // router.post('/judge/:topid/:tweetid/:rel/:partid', function(req,res){
+  //   var topid = req.params.topid;
+  //   var tweetid = req.params.tweetid;
+  //   var rel = req.params.rel;
+  //   var partid = req.params.partid;
+    
+  //   var devicetype = req.device.type.toLowerCase(); 
+  //   // console.log("devicetype - ", devicetype);
+
+  //   var db = req.db;
+  //   // validate partid 
+  //   db.query('select * from participants where partid = ?;',partid,function(errors0,results0){
+  //     if(errors0 || results0.length === 0) {
+  //       res.status(500).json({'message':'Invalid participant: ' + partid});
+  //       return;
+  //     }
+
+  //     // validate topid for this partid
+  //     db.query('select * from topic_assignments where topid = ? and partid = ?;',[topid, partid],function(errors1,results1){
+  //       if(errors1 || results1.length === 0) {
+  //         res.status(500).json({'message':'Unable to identify participant: ' + partid + ' for topic: ' + topid});
+  //         return;
+  //       }
+
+  //       // insert judgement into DB
+  //       db.query('insert judgements (assessor,topid,tweetid,rel,devicetype) values (?,?,?,?,?) ON DUPLICATE KEY UPDATE rel=?, submitted=NOW()',
+  //                                       [partid,topid,tweetid,rel,devicetype,rel],function(errors,results){
+  //         if(errors){
+  //           console.log(errors)
+  //           console.log("Unable to log: ",topid," ",tweetid," ",rel," ",devicetype);
+  //           res.status(500).json({message : 'Unable to insert/update relevance assessment'})
+  //         } else {
+  //           console.log("Logged: ",topid," ",tweetid," ",rel," ",devicetype);
+  //           // res.send('Success! Stored/Updated the relevance judgement.')
+  //           res.render('judgement-store-msg', { judgement: rel });
+  //         }
+  //       });
+  //     });
+  //   });    
+  // });
 
   // clients get back live assessments for the tweets posted for this topic
   router.post('/assessments/:topid/:clientid',function(req,res){
@@ -348,8 +353,6 @@ module.exports = function(io){
     });
   });
 
-
-  // TODO: Need to enforce topid is valid
   // Push tweets to the assessors as and when they arrive
   router.post('/tweet/:topid/:tweetid/:clientid',function(req,res){
     var topid = req.params.topid;
@@ -391,7 +394,9 @@ module.exports = function(io){
                 return;
               }
               // If we have seen the tweet before, do nothing
-              if(results4[0].cnt === 0){
+              // ToDo: revert the changes to push only if the count of this tweet is 0
+              if(results4[0].cnt >= 0) {
+              // if(results4[0].cnt === 0){ <- original
                 // Otherwise send it out to be judged and then insert it
                 // get the topic title
                 db.query('select title from topics where topid = ?;',topid,function(errors2,results2){
